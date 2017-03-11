@@ -23,33 +23,28 @@
 #include "ets_sys.h"
 #include "osapi.h"
 #include "user_interface.h"
-#include "cont.h"
 
-extern void esp_schedule();
-extern void esp_yield();
-
-static os_timer_t delay_timer;
 static os_timer_t micros_overflow_timer;
 static uint32_t micros_at_last_overflow_tick = 0;
 static uint32_t micros_overflow_count = 0;
-#define ONCE 0
 #define REPEAT 1
 
-void delay_end(void* arg) {
-    (void) arg;
-    esp_schedule();
-}
-
 void delay(unsigned long ms) {
-    if(ms) {
-        os_timer_setfn(&delay_timer, (os_timer_func_t*) &delay_end, 0);
-        os_timer_arm(&delay_timer, ms, ONCE);
-    } else {
-        esp_schedule();
+    if (ms == 0) {
+        yield();
     }
-    esp_yield();
-    if(ms) {
-        os_timer_disarm(&delay_timer);
+    else if (ms <= 1000 * 60 * 60) { // More precise version
+        unsigned long start = micros();
+        unsigned long us = ms * 1000;
+        while (micros() - start < us) {
+            yield();
+        }
+    }
+    else {
+        unsigned long start = millis();
+        while (millis() - start < ms) {
+            yield();
+        }
     }
 }
 

@@ -75,14 +75,57 @@ void preloop_update_frequency() {
 extern void (*__init_array_start)(void);
 extern void (*__init_array_end)(void);
 
-cont_t g_cont __attribute__ ((aligned (16)));
+typedef struct thread_info_ {
+    cont_t* cont;
+    thread_func_t func;
+    void* func_arg;
+    struct thread_info_* next;
+    struct thread_info_* prev;
+} thread_info_t;
+
+static void loop_wrapper(void*);
+
+static cont_static_t g_main_cont __attribute__ ((aligned (16)));
+
+thread_info_t g_thread_list = { (cont_t*) &g_main_cont, loop_wrapper, NULL, &g_thread_list, &g_thread_list };
+thread_info_t* g_current_thread = &g_thread_list;
+
 static os_event_t g_loop_queue[LOOP_QUEUE_SIZE];
 
 static uint32_t g_micros_at_task_start;
 
+extern "C" cont_t* current_cont() {
+    return g_current_thread->cont;
+}
+
+extern "C" int spawn(thread_func_t func, void* func_arg, unsigned int stack_size) {
+    stack_size = (stack_size + 0x0F) & ~0x0F; // Stack size must be a multiple of 16
+    if (stack_size < 32) {
+        return 0;
+    }
+    cont_t* cont = (cont_t*) malloc(CONT_REQUIRED_SIZE(stack_size));
+    if (!cont) {
+        return 0;
+    }
+    thread_info_t* thread_info = (thread_info_t*) malloc(sizeof(thread_info_t));
+    if (!thread_info) {
+        free(cont);
+        return 0;
+    }
+    cont_init_size(cont, stack_size);
+    thread_info->cont = cont;
+    thread_info->func = func;
+    thread_info->func_arg = func_arg;
+    thread_info->next = &g_thread_list;
+    thread_info->prev = g_thread_list.prev;
+    g_thread_list.prev->next = thread_info;
+    g_thread_list.prev = thread_info;
+    return 1;
+}
+
 extern "C" void esp_yield() {
-    if (cont_can_yield(&g_cont)) {
-        cont_yield(&g_cont);
+    if (cont_can_yield(current_cont())) {
+        cont_yield(current_cont());
     }
 }
 
@@ -91,7 +134,7 @@ extern "C" void esp_schedule() {
 }
 
 extern "C" void __yield() {
-    if (cont_can_yield(&g_cont)) {
+    if (cont_can_yield(current_cont())) {
         esp_schedule();
         esp_yield();
     }
@@ -103,16 +146,15 @@ extern "C" void __yield() {
 extern "C" void yield(void) __attribute__ ((weak, alias("__yield")));
 
 extern "C" void optimistic_yield(uint32_t interval_us) {
-    if (cont_can_yield(&g_cont) &&
+    if (cont_can_yield(current_cont()) &&
         (system_get_time() - g_micros_at_task_start) > interval_us)
     {
         yield();
     }
 }
 
-static void loop_wrapper() {
+static void loop_wrapper(void*) {
     static bool setup_done = false;
-    preloop_update_frequency();
     if(!setup_done) {
         setup();
 #ifdef DEBUG_ESP_PORT
@@ -121,6 +163,11 @@ static void loop_wrapper() {
         setup_done = true;
     }
     loop();
+}
+
+static void thread_wrapper() {
+    preloop_update_frequency();
+    g_current_thread->func(g_current_thread->func_arg);
     run_scheduled_functions();
     esp_schedule();
 }
@@ -128,8 +175,9 @@ static void loop_wrapper() {
 static void loop_task(os_event_t *events) {
     (void) events;
     g_micros_at_task_start = system_get_time();
-    cont_run(&g_cont, &loop_wrapper);
-    if (cont_check(&g_cont) != 0) {
+    g_current_thread = g_current_thread->next;
+    cont_run(current_cont(), thread_wrapper);
+    if (cont_check(current_cont()) != 0) {
         panic();
     }
 }
@@ -165,7 +213,7 @@ extern "C" void user_init(void) {
 
     initVariant();
 
-    cont_init(&g_cont);
+    cont_init(&g_main_cont);
 
     ets_task(loop_task,
         LOOP_TASK_PRIORITY, g_loop_queue,

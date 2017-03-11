@@ -25,27 +25,31 @@
 
 #define CONT_STACKGUARD 0xfeefeffe
 
-void ICACHE_RAM_ATTR cont_init(cont_t* cont) {
+void ICACHE_RAM_ATTR cont_init_size(cont_t* cont, unsigned stack_size) {
+    unsigned* stack = (unsigned*)(cont + 1);
+    cont_footer_t* footer = (cont_footer_t*)(stack + (stack_size / 4));
     cont->stack_guard1 = CONT_STACKGUARD;
-    cont->stack_guard2 = CONT_STACKGUARD;
-    cont->stack_end = cont->stack + (sizeof(cont->stack) / 4);
-    cont->struct_start = (unsigned*) cont;
-    
+    cont->stack_end = (unsigned*) footer;
+    footer->stack_guard2 = CONT_STACKGUARD;
+    footer->struct_start = (unsigned*) cont;
+
     // fill stack with magic values to check high water mark
-    for(int pos = 0; pos < (int)(sizeof(cont->stack) / 4); pos++)
+    while(stack < footer)
     {
-        cont->stack[pos] = CONT_STACKGUARD;
+        *stack = CONT_STACKGUARD;
+        stack++;
     }
 }
 
 int ICACHE_RAM_ATTR cont_check(cont_t* cont) {
-    if(cont->stack_guard1 != CONT_STACKGUARD || cont->stack_guard2 != CONT_STACKGUARD) return 1;
+    cont_footer_t* footer = (cont_footer_t*) cont->stack_end;
+    if(cont->stack_guard1 != CONT_STACKGUARD || footer->stack_guard2 != CONT_STACKGUARD) return 1;
 
     return 0;
 }
 
 int ICACHE_RAM_ATTR cont_get_free_stack(cont_t* cont) {
-    uint32_t *head = cont->stack;
+    uint32_t *head = (uint32_t*)(cont + 1);
     int freeWords = 0;
 
     while(*head == CONT_STACKGUARD)

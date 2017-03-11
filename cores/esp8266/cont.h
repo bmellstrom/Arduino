@@ -38,15 +38,28 @@ typedef struct cont_ {
         unsigned unused1;
         unsigned unused2;
         unsigned stack_guard1;
-
-        unsigned stack[CONT_STACKSIZE / 4];
-
-        unsigned stack_guard2;
-        unsigned* struct_start;
 } cont_t;
 
+typedef struct cont_footer_t {
+        unsigned stack_guard2;
+        unsigned* struct_start;
+} cont_footer_t;
+
+typedef struct cont_static_ {
+        cont_t header;
+        unsigned stack[CONT_STACKSIZE / 4];
+        cont_footer_t footer;
+} cont_static_t;
+
+#define CONT_REQUIRED_SIZE(stack_size) (sizeof(cont_t) + stack_size + sizeof(cont_footer_t))
+
 // Initialize the cont_t structure before calling cont_run
-void cont_init(cont_t*);
+void cont_init_size(cont_t*, unsigned stack_size);
+
+// Initialize the cont_static_t structure before calling cont_run
+static inline void cont_init(cont_static_t* c) {
+    cont_init_size(&c->header, CONT_STACKSIZE);
+}
 
 // Run function pfn in a separate stack, or continue execution
 // at the point where cont_yield was called

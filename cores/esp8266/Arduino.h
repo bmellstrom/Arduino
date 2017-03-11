@@ -219,6 +219,9 @@ void loop(void);
 void yield(void);
 void optimistic_yield(uint32_t interval_us);
 
+typedef void (*thread_func_t)(void*);
+int spawn(thread_func_t func, void* func_arg, unsigned int stack_size);
+
 #define digitalPinToPort(pin)       (0)
 #define digitalPinToBitMask(pin)    (1UL << (pin))
 #define digitalPinToTimer(pin)      (0)
