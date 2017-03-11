@@ -1,3 +1,74 @@
+# Arduino core for ESP8266, with multi-threading
+
+WARNING! This is a clone of the official Arduino core for the ESP8266, with
+some highly experimental cooperative multi-threading support. It will likely
+make fun of you while you try to figure out why it doesn't work.
+
+### Motivation
+Multi-threading can make it easier to write and maintain code, by avoiding
+complex state machines. There are some libraries out there for simulating this,
+but they typically don't have separate stacks, or they don't address the issue
+with blocking calls in the ESP8266 WiFi libraries. Since I had some spare time,
+and the support basically was already there in the core, I made a crude attempt
+to expose it.
+
+### How it works
+This is a case of cooperative multi-threading, meaning each thread either need
+to exit its loop regularly, or call one of the `yield()` or `delay(ms)`
+functions, to let the other threads run. All threads have the same priority and
+are scheduled in a round-robin fashion. If a thread function exit it will be
+invoked again later, just like the regular `loop()` function. There is no way
+to terminate threads.
+
+The stack for each new thread is allocated on the heap and is by default 1024
+bytes. See `ESP8266Scheduler.h` for the function signature.
+
+In addition to the thread support, a number of library call sites have been
+modified to avoid `esp_yield()` and just call `yield()` in a loop instead,
+to avoid the blocking behavior. One should note this enables (accidental)
+concurrent access to the libraries, which may be TOTALLY UNSAFE. It's probably
+best if you keep your threads responsibilities completely separate.
+
+### Example
+```
+#include <ESP8266Scheduler.h>
+
+void serialLoop() {
+  int num = 0;
+  while (true) {
+    Serial.printf("The number is %d\n", num++);
+    delay(1000);
+  }
+}
+
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+  Serial.begin(115200);
+  Scheduler.startLoop(serialLoop);
+}
+
+void loop() {
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(1000);
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(1000);
+}
+```
+
+### Installation
+Since this is a modified version of the original core, you need to remove that
+one if you have it installed and then install this one instead. Don't expect
+any support on it though, especially not from the original authors.
+
+### Performance
+Haven't checked; probably horrible.
+
+### Known issues
+- Using ArduinoOTA is currently not super-safe since it doesn't suspend other threads, but it should not be that hard to fix.
+- Since `delay()` has been replaced with `yield()` loops, the CPU will never enter any low power states. Unsure if it did that before though.
+
+Original README follows below.
+
 Arduino core for ESP8266 WiFi chip
 ===========================================
 
