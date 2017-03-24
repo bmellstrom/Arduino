@@ -34,7 +34,7 @@ void ICACHE_RAM_ATTR cont_init_size(cont_t* cont, unsigned stack_size) {
     footer->struct_start = (unsigned*) cont;
 
     // fill stack with magic values to check high water mark
-    while(stack < footer)
+    while(stack < (unsigned*)footer)
     {
         *stack = CONT_STACKGUARD;
         stack++;
