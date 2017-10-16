@@ -26,9 +26,6 @@ class WiFiClient;
 
 typedef void (*discard_cb_t)(void*, ClientContext*);
 
-extern "C" void esp_yield();
-extern "C" void esp_schedule();
-
 #include "DataSource.h"
 
 class ClientContext
@@ -126,8 +123,9 @@ public:
         }
         _connect_pending = 1;
         _op_start_time = millis();
-        // This delay will be interrupted by esp_schedule in the connect callback
-        delay(_timeout_ms);
+        while (_connect_pending && !_is_timeout()) {
+            yield();
+        }
         _connect_pending = 0;
         if (state() != ESTABLISHED) {
             abort();
@@ -161,7 +159,7 @@ public:
         return tcp_nagle_disabled(_pcb);
     }
 
-    void setTimeout(int timeout_ms) 
+    void setTimeout(int timeout_ms)
     {
         _timeout_ms = timeout_ms;
     }
@@ -334,15 +332,14 @@ protected:
 
     void _notify_error()
     {
-        if (_connect_pending || _send_waiting) {
-            esp_schedule();
-        }
+        _connect_pending = 0;
+        _send_pending = 0;
     }
 
     size_t _write_from_source(DataSource* ds)
     {
         assert(_datasource == nullptr);
-        assert(_send_waiting == 0);
+        assert(_send_pending == 0);
         _datasource = ds;
         _written = 0;
         _op_start_time = millis();
@@ -360,10 +357,12 @@ protected:
                 break;
             }
 
-            ++_send_waiting;
-            esp_yield();
+            _send_pending = 1;
+            while (_send_pending && !_is_timeout()) {
+                yield();
+            }
         } while(true);
-        _send_waiting = 0;
+        _send_pending = 0;
         return _written;
     }
 
@@ -409,10 +408,7 @@ protected:
 
     void _write_some_from_cb()
     {
-        if (_send_waiting == 1) {
-            _send_waiting--;
-            esp_schedule();
-        }
+        _send_pending = 0;
     }
 
     err_t _sent(tcp_pcb* pcb, uint16_t len)
@@ -489,7 +485,7 @@ protected:
         (void) err;
         assert(pcb == _pcb);
         assert(_connect_pending);
-        esp_schedule();
+        _connect_pending = 0;
         return ERR_OK;
     }
 
@@ -538,8 +534,8 @@ private:
     size_t _write_chunk_size = 256;
     uint32_t _timeout_ms = 5000;
     uint32_t _op_start_time = 0;
-    uint8_t _send_waiting = 0;
-    uint8_t _connect_pending = 0;
+    volatile uint8_t _send_pending = 0;
+    volatile uint8_t _connect_pending = 0;
 
     int8_t _refcnt;
     ClientContext* _next;

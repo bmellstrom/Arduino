@@ -24,8 +24,6 @@
 class UdpContext;
 
 extern "C" {
-void esp_yield();
-void esp_schedule();
 #include "lwip/init.h" // LWIP_VERSION_
 }
 

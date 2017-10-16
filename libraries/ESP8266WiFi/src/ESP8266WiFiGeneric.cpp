@@ -45,9 +45,6 @@ extern "C" {
 #include "WiFiUdp.h"
 #include "debug.h"
 
-extern "C" void esp_schedule();
-extern "C" void esp_yield();
-
 
 // -----------------------------------------------------------------------------------------------------------------------
 // ------------------------------------------------- Generic WiFi function -----------------------------------------------
@@ -426,7 +423,10 @@ void wifi_dns_found_callback(const char *name, ip_addr_t *ipaddr, void *callback
 void wifi_dns_found_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
 #endif
 
-static bool _dns_lookup_pending = false;
+
+static uint32_t dnsLastKey;
+static volatile uint32_t dnsResult;
+static volatile uint32_t dnsKeyFinished;
 
 /**
  * Resolve the given hostname to an IP address.
@@ -453,15 +453,18 @@ int ESP8266WiFiGenericClass::hostByName(const char* aHostname, IPAddress& aResul
     }
 
     DEBUG_WIFI_GENERIC("[hostByName] request IP for: %s\n", aHostname);
-    err_t err = dns_gethostbyname(aHostname, &addr, &wifi_dns_found_callback, &aResult);
+    uint32_t key = ++dnsLastKey; // Safe since we don't have thread preemption
+    err_t err = dns_gethostbyname(aHostname, &addr, &wifi_dns_found_callback, (void*)key);
     if(err == ERR_OK) {
         aResult = addr.addr;
     } else if(err == ERR_INPROGRESS) {
-        _dns_lookup_pending = true;
-        delay(timeout_ms);
-        _dns_lookup_pending = false;
-        // will return here when dns_found_callback fires
-        if(aResult != 0) {
+        u32 start = millis();
+        while ((dnsKeyFinished != key) && ((millis() - start) < timeout_ms)) {
+            yield();
+        }
+        uint32_t result = dnsResult;
+        if ((dnsKeyFinished == key) && (result != 0)) {
+            aResult = result;
             err = ERR_OK;
         }
     }
@@ -488,13 +491,6 @@ void wifi_dns_found_callback(const char *name, const ip_addr_t *ipaddr, void *ca
 #endif
 {
     (void) name;
-    if (!_dns_lookup_pending) {
-        return;
-    }
-    if(ipaddr) {
-        (*reinterpret_cast<IPAddress*>(callback_arg)) = ipaddr->addr;
-    }
-    esp_schedule(); // resume the hostByName function
+    dnsResult = ipaddr->addr;
+    dnsKeyFinished = (u32)callback_arg;
 }
-
-
