@@ -1,6 +1,6 @@
 {
-    "name": "framework-arduinoespressif8266",
+    "name": "framework-arduinoespressif8266-threads",
     "description": "Arduino Wiring-based Framework (ESP8266 Core)",
-    "url": "https://github.com/esp8266/Arduino",
-    "version": "2.4.0-rc.1"
+    "url": "https://github.com/bmellstrom/esp8266-arduino-threads",
+    "version": "2.4.0-rc.1-threads.1"
 }
